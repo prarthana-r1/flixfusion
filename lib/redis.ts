@@ -99,7 +99,6 @@ export async function getSearchResults(
             mode: 'insensitive' as const
         };
 
-
         // Movies
         const movies = (type === "all" || type === "movie") ?
             await prisma.movie.findMany({
@@ -115,68 +114,54 @@ export async function getSearchResults(
 
         // TV Series
         const tvSeriesRaw = (type === "all" || type === "tvSeries") ?
-            await prisma.tvSeries.findMany({
-                where: {
-                    OR: [
-                        { title: searchCondition },
-                        { director: searchCondition }
-                    ]
-                },
-                take: SEARCH_CONSTANTS.RESULTS_PER_PAGE,
-                orderBy: { title: 'asc' }
-            }) : [];
+    await prisma.tvSeries.findMany({
+        where: {
+            OR: [
+                { title: searchCondition },
+                { director: searchCondition }
+            ]
+        },
+        take: SEARCH_CONSTANTS.RESULTS_PER_PAGE,
+        orderBy: { title: 'asc' }
+    }) : [];
 
-        // Add id to each episode in tvSeries
-        const tvSeries = tvSeriesRaw.map((series: any) => ({
-            ...series,
-            episodes: Array.isArray(series.episodes)
-                ? series.episodes.map((ep: any) => ({
-                    ...ep,
-                    id: `${series.id}_${ep.seasonNumber}_${ep.episodeNumber}`
-                }))
-                : []
-        }));
+const tvSeries = tvSeriesRaw.map((series) => ({
+    ...series,
+    episodes: [] // Required to satisfy the TvSeries type
+}));
 
-        // Episodes (search inside tvSeries.episodes)
 
+        // Episodes (normalized, using episode model directly)
         let episodes: any[] = [];
         if (type === "all" || type === "episode") {
-            // Fetch all tvSeries that could contain matching episodes
-            const allSeries = await prisma.tvSeries.findMany({ select: { id: true, title: true, episodes: true } });
-            for (const series of allSeries) {
-                if (Array.isArray(series.episodes)) {
-                    const matchedEpisodes = series.episodes.filter((ep: any) =>
-                        ep.title && ep.title.toLowerCase().includes(query.toLowerCase())
-                    ).map((ep: any) => ({
-                        id: `${series.id}_${ep.seasonNumber}_${ep.episodeNumber}`,
-                        episodeNumber: ep.episodeNumber,
-                        isReference: ep.isReference,
-                        seasonNumber: ep.seasonNumber,
-                        title: ep.title,
-                        tvSeriesTitle: series.title
-                    }));
-                    episodes.push(...matchedEpisodes);
+            const matchedEpisodes = await prisma.episode.findMany({
+                where: {
+                    title: {
+                        contains: query,
+                        mode: 'insensitive'
+                    }
+                },
+                take: SEARCH_CONSTANTS.RESULTS_PER_PAGE,
+                include: {
+                    tvSeries: {
+                        select: { title: true }
+                    }
                 }
-            }
-            // Limit results
-            episodes = episodes.slice(0, SEARCH_CONSTANTS.RESULTS_PER_PAGE);
+            });
+
+            episodes = matchedEpisodes.map((ep) => ({
+                id: `${ep.seriesId}_${ep.seasonNumber}_${ep.episodeNumber}`,
+                episodeNumber: ep.episodeNumber,
+                isReference: ep.isReference,
+                seasonNumber: ep.seasonNumber,
+                title: ep.title,
+                tvSeriesTitle: ep.tvSeries?.title || "Unknown"
+            }));
         }
-
-        // Ensure type compatibility for episodes in tvSeries
-        const tvSeriesFixed = tvSeries.map((series: any) => ({
-            ...series,
-            episodes: Array.isArray(series.episodes)
-                ? series.episodes.map((ep: any) => ({
-                    ...ep,
-                    id: ep.id || `${series.id}_${ep.seasonNumber}_${ep.episodeNumber}`
-                }))
-                : []
-        }));
-
 
         const searchResults = {
             movies,
-            tvSeries: tvSeriesFixed,
+            tvSeries,
             episodes
         };
 
@@ -189,6 +174,7 @@ export async function getSearchResults(
         throw error;
     }
 }
+
 
 export async function closeRedisConnection(): Promise<void> {
     try {

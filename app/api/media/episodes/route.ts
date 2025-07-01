@@ -5,13 +5,27 @@ export async function POST(request: NextRequest) {
     try {
         const body = await request.json();
 
+        // Validate the series exists
+        const tvSeries = await prisma.tvSeries.findUnique({
+            where: { id: body.tvSeriesId }
+        });
+
+        if (!tvSeries) {
+            return NextResponse.json(
+                { error: "TV Series not found" },
+                { status: 404 }
+            );
+        }
+
+        const seasonNumber = parseInt(body.seasonNumber);
+        const episodeNumber = parseInt(body.episodeNumber);
+
+        // Check if episode already exists
         const existingEpisode = await prisma.episode.findFirst({
             where: {
-                AND: [
-                    { tvSeriesId: body.tvSeriesId },
-                    { seasonNumber: body.seasonNumber },
-                    { episodeNumber: body.episodeNumber }
-                ]
+                seriesId: body.tvSeriesId,
+                seasonNumber,
+                episodeNumber
             }
         });
 
@@ -22,16 +36,18 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        const episode = await prisma.episode.create({
+        // Create the new episode
+        const newEpisode = await prisma.episode.create({
             data: {
                 title: body.title,
-                seasonNumber: parseInt(body.seasonNumber),
-                episodeNumber: parseInt(body.episodeNumber),
-                tvSeriesId: body.tvSeriesId,
+                seasonNumber,
+                episodeNumber,
+                isReference: false,
+                seriesId: body.tvSeriesId
             }
         });
 
-        return NextResponse.json(episode);
+        return NextResponse.json(newEpisode);
     } catch (error) {
         console.error("Failed to create episode:", error);
         return NextResponse.json(
