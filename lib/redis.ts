@@ -8,11 +8,7 @@ import { SEARCH_CONSTANTS } from './constant';
 import prisma from "@/lib/prisma";
 
 const client = createClient({
-    password: process.env.REDIS_PASSWORD || '',
-    socket: {
-        host: process.env.REDIS_HOST || 'redis',
-        port: parseInt(process.env.REDIS_PORT || '10950')
-    }
+  url: process.env.REDIS_URL, // set this in Vercel Environment Variables
 });
 
 client.connect().catch((err) => {
