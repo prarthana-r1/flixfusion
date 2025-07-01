@@ -21,10 +21,12 @@ export async function POST(request: NextRequest) {
             );
         }
 
+
         const tvSeries = await prisma.tvSeries.create({
             data: {
                 title: body.title,
                 director: body.director,
+                isReference: false
             }
         });
 
