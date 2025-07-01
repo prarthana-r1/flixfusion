@@ -103,73 +103,74 @@ export async function getSearchResults(
             mode: 'insensitive' as const
         };
 
-        const results = await Promise.all([
-            (type === "all" || type === "movie") ?
-                prisma.movie.findMany({
-                    where: {
-                        OR: [
-                            { title: searchCondition },
-                            { director: searchCondition }
-                        ]
-                    },
-                    take: SEARCH_CONSTANTS.RESULTS_PER_PAGE,
-                    orderBy: { title: 'asc' }
-                }) : Promise.resolve([]),
 
-            (type === "all" || type === "tvSeries") ?
-                prisma.tvSeries.findMany({
-                    where: {
-                        OR: [
-                            { title: searchCondition },
-                            { director: searchCondition }
-                        ]
-                    },
-                    include: {
-                        episodes: {
-                            orderBy: [
-                                { seasonNumber: 'asc' },
-                                { episodeNumber: 'asc' }
-                            ]
-                        },
-                        _count: {
-                            select: { episodes: true }
-                        }
-                    },
-                    take: SEARCH_CONSTANTS.RESULTS_PER_PAGE,
-                    orderBy: { title: 'asc' }
-                }) : Promise.resolve([]),
-
-            (type === "all" || type === "episode") ?
-                prisma.episode.findMany({
-                    where: {
-                        OR: [
-                            { title: searchCondition },
-                            {
-                                tvSeries: {
-                                    title: searchCondition
-                                }
-                            }
-                        ]
-                    },
-                    include: {
-                        tvSeries: {
-                            select: {
-                                title: true
-                            }
-                        }
-                    },
-                    take: SEARCH_CONSTANTS.RESULTS_PER_PAGE,
-                    orderBy: [
-                        { seasonNumber: 'asc' },
-                        { episodeNumber: 'asc' }
+        // Movies
+        const movies = (type === "all" || type === "movie") ?
+            await prisma.movie.findMany({
+                where: {
+                    OR: [
+                        { title: searchCondition },
+                        { director: searchCondition }
                     ]
-                }) : Promise.resolve([])
-        ]);
+                },
+                take: SEARCH_CONSTANTS.RESULTS_PER_PAGE,
+                orderBy: { title: 'asc' }
+            }) : [];
+
+        // TV Series
+        const tvSeriesRaw = (type === "all" || type === "tvSeries") ?
+            await prisma.tvSeries.findMany({
+                where: {
+                    OR: [
+                        { title: searchCondition },
+                        { director: searchCondition }
+                    ]
+                },
+                take: SEARCH_CONSTANTS.RESULTS_PER_PAGE,
+                orderBy: { title: 'asc' }
+            }) : [];
+
+        // Add id to each episode in tvSeries
+        const tvSeries = tvSeriesRaw.map((series: any) => ({
+            ...series,
+            episodes: Array.isArray(series.episodes)
+                ? series.episodes.map((ep: any) => ({
+                    ...ep,
+                    id: `${series.id}_${ep.seasonNumber}_${ep.episodeNumber}`
+                }))
+                : []
+        }));
+
+        // Episodes (search inside tvSeries.episodes)
+
+        let episodes: any[] = [];
+        if (type === "all" || type === "episode") {
+            // Fetch all tvSeries that could contain matching episodes
+            const allSeries = await prisma.tvSeries.findMany();
+            for (const series of allSeries) {
+                if (Array.isArray(series.episodes)) {
+                    const matchedEpisodes = series.episodes.filter((ep: any) =>
+                        ep.title && ep.title.toLowerCase().includes(query.toLowerCase())
+                    ).map((ep: any) => ({
+                        // Generate a unique id for the episode
+                        id: `${series.id}_${ep.seasonNumber}_${ep.episodeNumber}`,
+                        episodeNumber: ep.episodeNumber,
+                        isReference: ep.isReference,
+                        seasonNumber: ep.seasonNumber,
+                        title: ep.title,
+                        tvSeriesTitle: series.title
+                    }));
+                    episodes.push(...matchedEpisodes);
+                }
+            }
+            // Limit results
+            episodes = episodes.slice(0, SEARCH_CONSTANTS.RESULTS_PER_PAGE);
+        }
 
         const searchResults = {
-            movies: results[0],
-            tvSeries: results[1],
-            episodes: results[2]
+            movies,
+            tvSeries,
+            episodes
         };
 
         await setCachedSearchResults(query, type, searchResults);
