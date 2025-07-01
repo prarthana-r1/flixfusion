@@ -146,13 +146,12 @@ export async function getSearchResults(
         let episodes: any[] = [];
         if (type === "all" || type === "episode") {
             // Fetch all tvSeries that could contain matching episodes
-            const allSeries = await prisma.tvSeries.findMany();
+            const allSeries = await prisma.tvSeries.findMany({ select: { id: true, title: true, episodes: true } });
             for (const series of allSeries) {
                 if (Array.isArray(series.episodes)) {
                     const matchedEpisodes = series.episodes.filter((ep: any) =>
                         ep.title && ep.title.toLowerCase().includes(query.toLowerCase())
                     ).map((ep: any) => ({
-                        // Generate a unique id for the episode
                         id: `${series.id}_${ep.seasonNumber}_${ep.episodeNumber}`,
                         episodeNumber: ep.episodeNumber,
                         isReference: ep.isReference,
@@ -167,9 +166,21 @@ export async function getSearchResults(
             episodes = episodes.slice(0, SEARCH_CONSTANTS.RESULTS_PER_PAGE);
         }
 
+        // Ensure type compatibility for episodes in tvSeries
+        const tvSeriesFixed = tvSeries.map((series: any) => ({
+            ...series,
+            episodes: Array.isArray(series.episodes)
+                ? series.episodes.map((ep: any) => ({
+                    ...ep,
+                    id: ep.id || `${series.id}_${ep.seasonNumber}_${ep.episodeNumber}`
+                }))
+                : []
+        }));
+
+
         const searchResults = {
             movies,
-            tvSeries,
+            tvSeries: tvSeriesFixed,
             episodes
         };
 
